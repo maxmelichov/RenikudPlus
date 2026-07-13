@@ -27,6 +27,13 @@ print(g2p.phonemize("שלום עולם"))
 # → ʃlˈom ʔolˈam
 ```
 
+For a gender-conditioned ONNX model, pass `speaker` and `target_speaker` as
+`0` (unknown), `1` (male), or `2` (female):
+
+```python
+g2p.phonemize("היא רצה", speaker=2, target_speaker=2)
+```
+
 ## Citation
 
 ```bibtex

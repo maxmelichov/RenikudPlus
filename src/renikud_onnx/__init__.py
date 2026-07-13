@@ -28,6 +28,7 @@ def normalize_graphemes(text: str) -> str:
 class G2P:
     def __init__(self, model_path: str) -> None:
         self._session = ort.InferenceSession(model_path)
+        self._input_names = {input_.name for input_ in self._session.get_inputs()}
         meta = self._session.get_modelmeta().custom_metadata_map
         self._vocab: dict[str, int] = json.loads(meta["vocab"])
         self._consonant_vocab: dict[int, str] = {int(k): v for k, v in json.loads(meta["consonant_vocab"]).items()}
@@ -81,16 +82,33 @@ class G2P:
                 )
         return stressed
 
-    def phonemize(self, text: str) -> str:
+    def phonemize(self, text: str, speaker: int = 0, target_speaker: int = 0) -> str:
+        """Convert text to IPA.
+
+        Gender-conditioned models accept speaker IDs: 0 for unknown, 1 for male,
+        and 2 for female. Legacy models only support the default unknown values.
+        """
+        if speaker not in (0, 1, 2) or target_speaker not in (0, 1, 2):
+            raise ValueError("speaker and target_speaker must be 0 (unknown), 1 (male), or 2 (female)")
+        supports_gender = {"speaker", "target_speaker"} <= self._input_names
+        if not supports_gender and (speaker or target_speaker):
+            raise ValueError(
+                "This ONNX model is not gender-conditioned; export a model with speaker and target_speaker inputs."
+            )
+
         text = normalize_graphemes(text)
         normalized = unicodedata.normalize("NFD", text)
         ids, mask, offsets = self._tokenize(text)
+        inputs: dict[str, np.ndarray] = {
+            "input_ids": np.array([ids], dtype=np.int64),
+            "attention_mask": np.array([mask], dtype=np.int64),
+        }
+        if supports_gender:
+            inputs["speaker"] = np.array([speaker], dtype=np.int64)
+            inputs["target_speaker"] = np.array([target_speaker], dtype=np.int64)
         consonant_logits, vowel_logits, stress_logits = self._session.run(
             ["consonant_logits", "vowel_logits", "stress_logits"],
-            {
-                "input_ids": np.array([ids], dtype=np.int64),
-                "attention_mask": np.array([mask], dtype=np.int64),
-            },
+            inputs,
         )
         consonant_predictions = consonant_logits[0].argmax(axis=-1)
         vowel_predictions = vowel_logits[0].argmax(axis=-1)

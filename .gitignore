@@ -5,7 +5,8 @@ dist/
 *.egg-info/
 .venv/
 
-# Model binaries are distributed through Hugging Face.
+# Weights are distributed via Hugging Face (notmax123/RenikudPlus).
 *.onnx
 *.onnx.data
+*.safetensors
 *.env
