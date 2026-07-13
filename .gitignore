@@ -1,0 +1,11 @@
+__pycache__/
+*.py[oc]
+build/
+dist/
+*.egg-info/
+.venv/
+
+# Model binaries are distributed through Hugging Face.
+*.onnx
+*.onnx.data
+*.env
