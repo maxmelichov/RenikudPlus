@@ -53,7 +53,11 @@ class G2P:
         return ids, [1] * len(ids), offsets
 
     def _best_stress_per_word(
-        self, offsets: list[tuple[int, int]], text: str, stress_logits: np.ndarray
+        self,
+        offsets: list[tuple[int, int]],
+        text: str,
+        stress_logits: np.ndarray,
+        vowel_predictions: np.ndarray,
     ) -> set[int]:
         word_spans = [(match.start(), match.end()) for match in re.finditer(r"\S+", text)]
         words: dict[int, list[int]] = {i: [] for i in range(len(word_spans))}
@@ -64,11 +68,18 @@ class G2P:
                 if word_start <= start < word_end:
                     words[word_index].append(token_index)
                     break
-        return {
-            max(token_indexes, key=lambda token_index: stress_logits[token_index, 1])
-            for token_indexes in words.values()
-            if token_indexes
-        }
+        stressed: set[int] = set()
+        for token_indexes in words.values():
+            vowel_token_indexes = [
+                token_index
+                for token_index in token_indexes
+                if self._vowel_vocab.get(int(vowel_predictions[token_index]), "∅") != "∅"
+            ]
+            if vowel_token_indexes:
+                stressed.add(
+                    max(vowel_token_indexes, key=lambda token_index: stress_logits[token_index, 1])
+                )
+        return stressed
 
     def phonemize(self, text: str) -> str:
         text = normalize_graphemes(text)
@@ -83,7 +94,9 @@ class G2P:
         )
         consonant_predictions = consonant_logits[0].argmax(axis=-1)
         vowel_predictions = vowel_logits[0].argmax(axis=-1)
-        stressed_positions = self._best_stress_per_word(offsets, normalized, stress_logits[0])
+        stressed_positions = self._best_stress_per_word(
+            offsets, normalized, stress_logits[0], vowel_predictions
+        )
 
         result: list[str] = []
         previous_end = 0
@@ -116,7 +129,7 @@ class G2P:
                 continue
 
             chunk = consonant if consonant != "∅" else ""
-            if stress:
+            if stress and vowel != "∅":
                 chunk += STRESS_MARK
             if vowel != "∅":
                 chunk += vowel
