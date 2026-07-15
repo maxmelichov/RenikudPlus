@@ -49,22 +49,6 @@ Niqqud has no stress mark, so predicted stress is not represented in this output
 (it is in `phonemize`). Diacritization is phonetically faithful but not
 publication-grade — e.g. shva in clusters is omitted.
 
-## Performance in containers
-
-onnxruntime sizes its thread pool from the host core count, so in a CPU-limited
-container it oversubscribes and slows down. Pass a `SessionOptions` with
-`intra_op_num_threads` set to the CPU quota:
-
-```python
-import onnxruntime as ort
-
-opts = ort.SessionOptions()
-opts.intra_op_num_threads = 2  # match the container CPU limit
-opts.inter_op_num_threads = 1
-g2p = G2P("model.onnx", session_options=opts)
-```
-
-On a 2-CPU pod this cut median latency ~30% versus the default thread pool.
 
 ## Citation
 
