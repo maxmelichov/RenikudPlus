@@ -34,6 +34,21 @@ For a gender-conditioned ONNX model, pass `speaker` and `target_speaker` as
 g2p.phonemize("היא רצה", speaker=2, target_speaker=2)
 ```
 
+### Niqqud output
+
+`vocalize` renders the same predictions as pointed Hebrew (niqqud) instead of
+IPA — for TTS engines that read niqqud natively but ignore phoneme markup. It
+accepts the same `speaker` / `target_speaker` arguments.
+
+```python
+print(g2p.vocalize("שלום עולם"))
+# → שׁלֹום עֹולַם
+```
+
+Niqqud has no stress mark, so predicted stress is not represented in this output
+(it is in `phonemize`). Diacritization is phonetically faithful but not
+publication-grade — e.g. shva in clusters is omitted.
+
 ## Citation
 
 ```bibtex

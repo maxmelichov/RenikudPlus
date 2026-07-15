@@ -14,6 +14,15 @@ TAF_ORD = ord("ת")
 STRESS_MARK = "ˈ"
 ORTHOGRAPHIC_MARKERS = ("'", '"')
 
+# Phoneme vowel -> niqqud vowel sign, used by `vocalize`. The model predicts the
+# five Hebrew vowel qualities (a/e/i/o/u); each is rendered with one representative
+# sign. Distinct signs that share a sound (patah/qamats, tsere/segol) collapse to
+# one -- a TTS engine only needs the sound, so this is lossless for pronunciation.
+_NIQQUD_VOWEL = {"a": "ַ", "e": "ֶ", "i": "ִ", "o": "ֹ", "u": "ֻ"}
+_DAGESH = "ּ"  # hard b/k/p (בּ כּ פּ)
+_SHIN_DOT = "ׁ"  # שׁ
+_SIN_DOT = "ׂ"  # שׂ
+
 
 def _is_hebrew(char: str) -> bool:
     return ALEF_ORD <= ord(char) <= TAF_ORD
@@ -82,11 +91,17 @@ class G2P:
                 )
         return stressed
 
-    def phonemize(self, text: str, speaker: int = 0, target_speaker: int = 0) -> str:
-        """Convert text to IPA.
+    def _predict(
+        self, text: str, speaker: int = 0, target_speaker: int = 0
+    ) -> tuple[str, list[tuple[int, int]], np.ndarray, np.ndarray, set[int]]:
+        """Run the model once and return the per-character predictions shared by
+        `phonemize` (IPA) and `vocalize` (niqqud).
 
         Gender-conditioned models accept speaker IDs: 0 for unknown, 1 for male,
         and 2 for female. Legacy models only support the default unknown values.
+
+        Returns ``(normalized_text, offsets, consonant_logits[seq, C],
+        vowel_predictions[seq], stressed_token_positions)``.
         """
         if speaker not in (0, 1, 2) or target_speaker not in (0, 1, 2):
             raise ValueError("speaker and target_speaker must be 0 (unknown), 1 (male), or 2 (female)")
@@ -110,11 +125,22 @@ class G2P:
             ["consonant_logits", "vowel_logits", "stress_logits"],
             inputs,
         )
-        consonant_predictions = consonant_logits[0].argmax(axis=-1)
         vowel_predictions = vowel_logits[0].argmax(axis=-1)
         stressed_positions = self._best_stress_per_word(
             offsets, normalized, stress_logits[0], vowel_predictions
         )
+        return normalized, offsets, consonant_logits[0], vowel_predictions, stressed_positions
+
+    def phonemize(self, text: str, speaker: int = 0, target_speaker: int = 0) -> str:
+        """Convert text to IPA.
+
+        Gender-conditioned models accept speaker IDs: 0 for unknown, 1 for male,
+        and 2 for female. Legacy models only support the default unknown values.
+        """
+        normalized, offsets, consonant_logits, vowel_predictions, stressed_positions = self._predict(
+            text, speaker, target_speaker
+        )
+        consonant_predictions = consonant_logits.argmax(axis=-1)
 
         result: list[str] = []
         previous_end = 0
@@ -134,7 +160,7 @@ class G2P:
             consonant_id = int(consonant_predictions[token_index])
             allowed = self._letter_constraints.get(char)
             if allowed is not None and consonant_id not in allowed:
-                consonant_id = max(allowed, key=lambda value: consonant_logits[0][token_index, value])
+                consonant_id = max(allowed, key=lambda value: consonant_logits[token_index, value])
             consonant = self._consonant_vocab.get(consonant_id, "∅")
             if char in self._geresh_map and end < len(normalized) and normalized[end] == "'":
                 consonant = self._geresh_map[char]
@@ -156,3 +182,74 @@ class G2P:
         if previous_end < len(normalized):
             result.append(normalized[previous_end:])
         return "".join(result)
+
+    def vocalize(self, text: str, speaker: int = 0, target_speaker: int = 0) -> str:
+        """Add niqqud (vowel diacritics) to Hebrew ``text``; non-Hebrew is unchanged.
+
+        Renders the same per-letter (consonant, vowel) predictions as `phonemize`,
+        but as niqqud -- vowel signs plus dagesh for hard b/k/p and the shin/sin
+        dot -- instead of IPA. Useful for TTS engines that read pointed Hebrew
+        natively but ignore phoneme markup. Diacritization is phonetically faithful
+        but not publication-grade (e.g. shva in clusters is omitted), and niqqud has
+        no stress mark, so the stress the model predicts is not represented here.
+
+        Gender-conditioned models accept the same speaker IDs as `phonemize`.
+        """
+        normalized, offsets, consonant_logits, vowel_predictions, _stressed = self._predict(
+            text, speaker, target_speaker
+        )
+        consonant_predictions = consonant_logits.argmax(axis=-1)
+
+        out: list[str] = []
+        # One record per Hebrew letter: [char, consonant, vowel, out_index, start].
+        records: list[list] = []
+        previous_end = 0
+        for token_index, (start, end) in enumerate(offsets):
+            if end - start != 1:
+                continue
+            if start > previous_end:
+                out.append(normalized[previous_end:start])
+            char = normalized[start:end]
+            previous_end = end
+            if not _is_hebrew(char):
+                # Keep everything non-Hebrew, including geresh markers (ג׳ -> ג').
+                out.append(char)
+                continue
+
+            consonant_id = int(consonant_predictions[token_index])
+            allowed = self._letter_constraints.get(char)
+            if allowed is not None and consonant_id not in allowed:
+                consonant_id = max(allowed, key=lambda value: consonant_logits[token_index, value])
+            consonant = self._consonant_vocab.get(consonant_id, "∅")
+            vowel = self._vowel_vocab.get(int(vowel_predictions[token_index]), "∅")
+
+            records.append([char, consonant, vowel, len(out), start])
+            out.append("")  # placeholder, filled after the mater-lectionis fixup
+
+        if previous_end < len(normalized):
+            out.append(normalized[previous_end:])
+
+        # Mater lectionis fixup: a silent final ה/א (consonant ∅) carrying a vowel
+        # took the vowel that belongs to the preceding consonant. Shift it back so
+        # the mark never lands on a silent letter (which would make TTS voice it).
+        # Guarded to the same word (adjacent) and only when the previous letter has
+        # no vowel of its own.
+        for i, record in enumerate(records):
+            char, consonant, vowel, _idx, start = record
+            if char in ("ה", "א") and consonant == "∅" and vowel != "∅" and i > 0:
+                previous = records[i - 1]
+                if previous[2] == "∅" and previous[4] + 1 == start:
+                    previous[2] = vowel
+                    record[2] = "∅"
+
+        for char, consonant, vowel, idx, _start in records:
+            marks = ""
+            if char == "ש":
+                marks += _SHIN_DOT if consonant == "ʃ" else _SIN_DOT
+            elif char in ("ב", "כ", "ך") and consonant in ("b", "k"):
+                marks += _DAGESH
+            elif char in ("פ", "ף") and consonant == "p":
+                marks += _DAGESH
+            out[idx] = unicodedata.normalize("NFC", char + marks + _NIQQUD_VOWEL.get(vowel, ""))
+
+        return "".join(out)
