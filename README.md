@@ -42,7 +42,7 @@ accepts the same `speaker` / `target_speaker` arguments.
 
 ```python
 print(g2p.vocalize("שלום עולם"))
-# → שׁלֹום עֹולַם
+# → שׁלוֹם עוֹלַם
 ```
 
 Niqqud has no stress mark, so predicted stress is not represented in this output
