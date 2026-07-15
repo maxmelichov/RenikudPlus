@@ -14,18 +14,38 @@ TAF_ORD = ord("ת")
 STRESS_MARK = "ˈ"
 ORTHOGRAPHIC_MARKERS = ("'", '"')
 
-# Phoneme vowel -> niqqud vowel sign, used by `vocalize`. The model predicts the
-# five Hebrew vowel qualities (a/e/i/o/u); each is rendered with one representative
-# sign. Distinct signs that share a sound (patah/qamats, tsere/segol) collapse to
-# one -- a TTS engine only needs the sound, so this is lossless for pronunciation.
-_NIQQUD_VOWEL = {"a": "ַ", "e": "ֶ", "i": "ִ", "o": "ֹ", "u": "ֻ"}
-_DAGESH = "ּ"  # hard b/k/p (בּ כּ פּ)
-_SHIN_DOT = "ׁ"  # שׁ
-_SIN_DOT = "ׂ"  # שׂ
+# Niqqud points named by their Unicode names -- the bare combining glyphs are
+# invisible in source. `vocalize` renders each of the model's five predicted vowel
+# qualities (a/e/i/o/u) as one representative sign; signs that share a sound
+# (patah/qamats, tsere/segol) collapse to one, which is lossless for pronunciation.
+_NIQQUD_VOWEL = {
+    "a": "\N{HEBREW POINT PATAH}",
+    "e": "\N{HEBREW POINT SEGOL}",
+    "i": "\N{HEBREW POINT HIRIQ}",
+    "o": "\N{HEBREW POINT HOLAM}",
+    "u": "\N{HEBREW POINT QUBUTS}",
+}
+_DAGESH = "\N{HEBREW POINT DAGESH OR MAPIQ}"  # hard b/k/p: בּ כּ פּ
+_SHIN_DOT = "\N{HEBREW POINT SHIN DOT}"  # שׁ
+_SIN_DOT = "\N{HEBREW POINT SIN DOT}"  # שׂ
+
+# A letter takes a consonant-conditioned point when the model's predicted consonant
+# selects one: בכפ take a dagesh in their hard (stop) realization, ש takes the
+# shin- or sin-dot. One table instead of branches scattered through `vocalize`.
+_DAGESH_PAIRS = frozenset({("ב", "b"), ("כ", "k"), ("ך", "k"), ("פ", "p"), ("ף", "p")})
 
 
 def _is_hebrew(char: str) -> bool:
     return ALEF_ORD <= ord(char) <= TAF_ORD
+
+
+def _consonant_point(letter: str, consonant: str) -> str:
+    """Dagesh or shin/sin dot implied by the consonant the model chose for `letter`."""
+    if letter == "ש":
+        return _SHIN_DOT if consonant == "ʃ" else _SIN_DOT
+    if (letter, consonant) in _DAGESH_PAIRS:
+        return _DAGESH
+    return ""
 
 
 def normalize_graphemes(text: str) -> str:
