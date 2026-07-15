@@ -55,8 +55,15 @@ def normalize_graphemes(text: str) -> str:
 
 
 class G2P:
-    def __init__(self, model_path: str) -> None:
-        self._session = ort.InferenceSession(model_path)
+    def __init__(self, model_path: str, session_options: ort.SessionOptions | None = None) -> None:
+        """Load the ONNX model.
+
+        `session_options` is passed straight to onnxruntime. In a CPU-limited
+        container, set `intra_op_num_threads` to the CPU quota -- onnxruntime
+        otherwise sizes its thread pool from the host core count and
+        oversubscribes, which measurably slows inference on a small pod.
+        """
+        self._session = ort.InferenceSession(model_path, session_options)
         self._input_names = {input_.name for input_ in self._session.get_inputs()}
         meta = self._session.get_modelmeta().custom_metadata_map
         self._vocab: dict[str, int] = json.loads(meta["vocab"])
