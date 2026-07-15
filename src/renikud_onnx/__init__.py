@@ -249,27 +249,38 @@ class G2P:
         if previous_end < len(normalized):
             out.append(normalized[previous_end:])
 
-        # Mater lectionis fixup: a silent final ה/א (consonant ∅) carrying a vowel
-        # took the vowel that belongs to the preceding consonant. Shift it back so
-        # the mark never lands on a silent letter (which would make TTS voice it).
-        # Guarded to the same word (adjacent) and only when the previous letter has
-        # no vowel of its own.
+        # Mater lectionis fixup — a vowel-letter (ו/י/ה/א) is silent but the vowel
+        # it represents belongs on a neighbouring letter. Both cases are guarded to
+        # adjacent letters in the same word.
+        #  - Silent final ה/א (consonant ∅) took the preceding consonant's vowel;
+        #    shift it back so the mark never lands on a silent letter (TTS would
+        #    voice it).
+        #  - A silent ו should itself carry an adjacent /o/ or /u/, so it renders as
+        #    holam male (וֹ) or shuruk (וּ). Otherwise the vav is left bare and TTS
+        #    may voice it as /v/ (שֻׁולחַן read as "shuvlchan"). י as a mater already
+        #    renders correctly (hiriq male, ִי), so it needs no fixup.
         for i, record in enumerate(records):
             char, consonant, vowel, _idx, start = record
-            if char in ("ה", "א") and consonant == "∅" and vowel != "∅" and i > 0:
-                previous = records[i - 1]
-                if previous[2] == "∅" and previous[4] + 1 == start:
+            if i == 0:
+                continue
+            previous = records[i - 1]
+            adjacent = previous[4] + 1 == start
+            if char in ("ה", "א") and consonant == "∅" and vowel != "∅":
+                if previous[2] == "∅" and adjacent:
                     previous[2] = vowel
                     record[2] = "∅"
+            elif char == "ו" and consonant == "∅" and vowel == "∅":
+                if adjacent and previous[2] in ("o", "u"):
+                    record[2] = previous[2]
+                    previous[2] = "∅"
 
         for char, consonant, vowel, idx, _start in records:
-            marks = ""
-            if char == "ש":
-                marks += _SHIN_DOT if consonant == "ʃ" else _SIN_DOT
-            elif char in ("ב", "כ", "ך") and consonant in ("b", "k"):
-                marks += _DAGESH
-            elif char in ("פ", "ף") and consonant == "p":
-                marks += _DAGESH
-            out[idx] = unicodedata.normalize("NFC", char + marks + _NIQQUD_VOWEL.get(vowel, ""))
+            if char == "ו" and consonant == "∅" and vowel in ("o", "u"):
+                # Vav as a vowel letter: shuruk (וּ) for /u/, holam male (וֹ) for /o/.
+                point = _DAGESH if vowel == "u" else _NIQQUD_VOWEL["o"]
+                out[idx] = unicodedata.normalize("NFC", char + point)
+            else:
+                point = _consonant_point(char, consonant)
+                out[idx] = unicodedata.normalize("NFC", char + point + _NIQQUD_VOWEL.get(vowel, ""))
 
         return "".join(out)
