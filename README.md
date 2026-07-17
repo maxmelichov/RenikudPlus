@@ -13,6 +13,13 @@ This repository contains only the code required for ONNX inference. It has no
 training pipeline, checkpoint files, or PyTorch dependency.
 
 ```console
+pip install renikud-plus
+hf download notmax123/RenikudPlus model.onnx --local-dir .
+```
+
+Or from a clone of this repo:
+
+```console
 uv sync
 hf download notmax123/RenikudPlus model.onnx --local-dir .
 ```
