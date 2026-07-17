@@ -9,8 +9,22 @@ spoken-language research.
 
 ## Install
 
+**From PyPI:**
+
 ```console
 pip install renikud-plus
+```
+
+**From this repo (no PyPI):**
+
+```console
+uv sync
+```
+
+Then run the example:
+
+```console
+uv run python examples/basic.py
 ```
 
 The ONNX weights (~310 MB) download automatically from Hugging Face on first
