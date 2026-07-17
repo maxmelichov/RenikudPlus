@@ -10,3 +10,7 @@ dist/
 *.onnx.data
 *.safetensors
 *.env
+.env
+
+# macOS
+.DS_Store
