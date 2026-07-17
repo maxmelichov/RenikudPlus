@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
@@ -13,6 +14,24 @@ ALEF_ORD = ord("א")
 TAF_ORD = ord("ת")
 STRESS_MARK = "ˈ"
 ORTHOGRAPHIC_MARKERS = ("'", '"')
+
+DEFAULT_HF_REPO = "notmax123/RenikudPlus"
+DEFAULT_MODEL_FILENAME = "model.onnx"
+
+
+def download_model(
+    repo_id: str = DEFAULT_HF_REPO,
+    filename: str = DEFAULT_MODEL_FILENAME,
+    cache_dir: str | Path | None = None,
+) -> str:
+    """Download the ONNX weights from Hugging Face (cached after the first call)."""
+    from huggingface_hub import hf_hub_download
+
+    return hf_hub_download(
+        repo_id=repo_id,
+        filename=filename,
+        cache_dir=None if cache_dir is None else str(cache_dir),
+    )
 
 # Niqqud points named by their Unicode names -- the bare combining glyphs are
 # invisible in source. `vocalize` renders each of the model's five predicted vowel
@@ -55,15 +74,29 @@ def normalize_graphemes(text: str) -> str:
 
 
 class G2P:
-    def __init__(self, model_path: str, session_options: ort.SessionOptions | None = None) -> None:
+    def __init__(
+        self,
+        model_path: str | Path | None = None,
+        session_options: ort.SessionOptions | None = None,
+        *,
+        repo_id: str = DEFAULT_HF_REPO,
+        filename: str = DEFAULT_MODEL_FILENAME,
+        cache_dir: str | Path | None = None,
+    ) -> None:
         """Load the ONNX model.
+
+        If `model_path` is omitted, the default weights are downloaded from
+        Hugging Face (`notmax123/RenikudPlus`) and cached locally.
 
         `session_options` is passed straight to onnxruntime. In a CPU-limited
         container, set `intra_op_num_threads` to the CPU quota -- onnxruntime
         otherwise sizes its thread pool from the host core count and
         oversubscribes, which measurably slows inference on a small pod.
         """
-        self._session = ort.InferenceSession(model_path, session_options)
+        if model_path is None:
+            model_path = download_model(repo_id=repo_id, filename=filename, cache_dir=cache_dir)
+        self.model_path = str(model_path)
+        self._session = ort.InferenceSession(self.model_path, session_options)
         self._input_names = {input_.name for input_ in self._session.get_inputs()}
         meta = self._session.get_modelmeta().custom_metadata_map
         self._vocab: dict[str, int] = json.loads(meta["vocab"])

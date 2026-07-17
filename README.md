@@ -9,29 +9,27 @@ spoken-language research.
 
 ## Install
 
-This repository contains only the code required for ONNX inference. It has no
-training pipeline, checkpoint files, or PyTorch dependency.
-
 ```console
 pip install renikud-plus
-hf download notmax123/RenikudPlus model.onnx --local-dir .
 ```
 
-Or from a clone of this repo:
-
-```console
-uv sync
-hf download notmax123/RenikudPlus model.onnx --local-dir .
-```
+The ONNX weights (~310 MB) download automatically from Hugging Face on first
+use and are cached locally. No separate `hf download` step is required.
 
 ## Usage
 
 ```python
 from renikud_onnx import G2P
 
-g2p = G2P("model.onnx")
+g2p = G2P()  # downloads notmax123/RenikudPlus model.onnx if needed
 print(g2p.phonemize("שלום עולם"))
 # → ʃlˈom ʔolˈam
+```
+
+Pass a local path if you already have the weights:
+
+```python
+g2p = G2P("model.onnx")
 ```
 
 For a gender-conditioned ONNX model, pass `speaker` and `target_speaker` as
