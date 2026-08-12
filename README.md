@@ -12,8 +12,21 @@ spoken-language research.
 **From PyPI:**
 
 ```console
-pip install renikud-plus
+pip install 'renikud-plus[cpu]'    # CPU inference
+pip install 'renikud-plus[gpu]'    # CUDA inference
 ```
+
+Pick the extra that matches the machine. ONNX Runtime is not a hard dependency
+on purpose: `onnxruntime` and `onnxruntime-gpu` are separate distributions that
+unpack into the *same* `onnxruntime/` directory, so pip installs both happily
+and whichever it writes last wins. If this package depended on the CPU build,
+it would silently disable CUDA for anyone who also asked for `onnxruntime-gpu`
+— and because pip's install order is topological rather than file order, they
+could not fix it by reordering their requirements. Nothing errors; sessions just
+quietly run on CPU.
+
+If you already manage ONNX Runtime yourself, plain `pip install renikud-plus`
+leaves your build untouched.
 
 **From this repo (no PyPI):**
 

@@ -8,7 +8,18 @@ import unicodedata
 from pathlib import Path
 
 import numpy as np
-import onnxruntime as ort
+
+try:
+    import onnxruntime as ort
+except ModuleNotFoundError as exc:  # pragma: no cover - depends on the install
+    raise ModuleNotFoundError(
+        "renikud-plus needs an ONNX Runtime build, and deliberately does not pin "
+        "one: `onnxruntime` and `onnxruntime-gpu` install into the same package "
+        "directory, so depending on the CPU build silently overwrites the GPU one "
+        "for anyone who wanted CUDA. Install whichever matches your machine:\n"
+        "    pip install 'renikud-plus[cpu]'\n"
+        "    pip install 'renikud-plus[gpu]'"
+    ) from exc
 
 ALEF_ORD = ord("א")
 TAF_ORD = ord("ת")

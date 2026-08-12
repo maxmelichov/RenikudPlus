@@ -1,6 +1,6 @@
 [project]
 name = "renikud-plus"
-version = "0.3.0"
+version = "0.4.0"
 description = "ONNX Runtime inference for Hebrew grapheme-to-phoneme conversion (ReNikud Plus)"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -14,7 +14,6 @@ keywords = ["hebrew", "g2p", "phonemizer", "onnx", "tts", "niqqud"]
 dependencies = [
     "huggingface-hub>=0.26.0",
     "numpy",
-    "onnxruntime>=1.24.2",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -26,6 +25,23 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Text Processing :: Linguistic",
 ]
+
+# ONNX Runtime is deliberately not a hard dependency.
+#
+# `onnxruntime` and `onnxruntime-gpu` are separate distributions that unpack into
+# the *same* `onnxruntime/` directory, so pip installs both happily and whichever
+# it writes last wins. Depending on the CPU build therefore silently disables
+# CUDA for anyone who also asked for `onnxruntime-gpu` — and because pip's
+# install order is topological rather than file order, they cannot fix it by
+# reordering their requirements. Nothing errors; sessions just run on CPU.
+#
+# Pick the build that matches the machine:
+#     pip install 'renikud-plus[cpu]'
+#     pip install 'renikud-plus[gpu]'
+# or install onnxruntime yourself alongside plain `renikud-plus`.
+[project.optional-dependencies]
+cpu = ["onnxruntime>=1.24.2"]
+gpu = ["onnxruntime-gpu>=1.24.2"]
 
 [project.urls]
 Homepage = "https://github.com/maxmelichov/RenikudPlus"
