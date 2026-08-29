@@ -81,6 +81,15 @@ wheels = [
 ]
 
 [[package]]
+name = "hebrew-num2words"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e4/8d/ea8d1fa49cf9db71cd2e7a04a7f73209acd98bfef9990df9f600a7c90265/hebrew_num2words-0.1.0.tar.gz", hash = "sha256:ef218dc8d9a781772408a6b5977049e2f4e51036891f1eae8f5dfa9855b3d33d", size = 17740, upload-time = "2026-08-29T20:06:06.492Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fb/22/b3dd47062cff6004fb3574f3e755d3f4eb5e51e262848c5b21f1e24ca094/hebrew_num2words-0.1.0-py3-none-any.whl", hash = "sha256:e63bae884cc4aafce01ce4d5dc0e7fb747ede824b15820d20dacde7fdab432b9", size = 15006, upload-time = "2026-08-29T20:06:05.161Z" },
+]
+
+[[package]]
 name = "hf-xet"
 version = "1.5.2"
 source = { registry = "https://pypi.org/simple" }
@@ -316,9 +325,10 @@ wheels = [
 
 [[package]]
 name = "renikud-plus"
-version = "0.3.0"
+version = "0.5.0"
 source = { editable = "." }
 dependencies = [
+    { name = "hebrew-num2words" },
     { name = "huggingface-hub" },
     { name = "numpy" },
     { name = "onnxruntime" },
@@ -326,6 +336,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "hebrew-num2words", specifier = ">=0.1.0" },
     { name = "huggingface-hub", specifier = ">=0.26.0" },
     { name = "numpy" },
     { name = "onnxruntime", specifier = ">=1.24.2" },

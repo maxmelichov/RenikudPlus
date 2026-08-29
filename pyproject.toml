@@ -1,6 +1,6 @@
 [project]
 name = "renikud-plus"
-version = "0.4.0"
+version = "0.5.0"
 description = "ONNX Runtime inference for Hebrew grapheme-to-phoneme conversion (ReNikud Plus)"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,6 +12,7 @@ authors = [
 ]
 keywords = ["hebrew", "g2p", "phonemizer", "onnx", "tts", "niqqud"]
 dependencies = [
+    "hebrew-num2words>=0.1.0",
     "huggingface-hub>=0.26.0",
     "numpy",
 ]

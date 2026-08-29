@@ -12,3 +12,9 @@ g2p = G2P(model_path)
 sentence = "הוא רצה את זה גם, אבל היא רצה מהר והקדימה אותו"
 print(g2p.phonemize(sentence))  # IPA
 print(g2p.vocalize(sentence))  # niqqud
+
+# Digits are expanded to Hebrew words before the model sees them.
+print(g2p.phonemize("המחיר 1250 שקלים"))
+
+# Pointed input decodes exactly like the same text unpointed.
+print(g2p.phonemize("שָׁלוֹם לְכֻּלָּם"), "==", g2p.phonemize("שלום לכולם"))
