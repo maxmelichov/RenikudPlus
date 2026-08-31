@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.0
+
+- **Synced with the Hugging Face model repo**, which re-uploaded the weights and
+  dropped `datastore.json`. New `model.onnx` downloads automatically on first
+  use; the published benchmark moves to 93.3% word accuracy on 126k words of
+  unseen podcast speech, with per-category numbers updated in the README.
+- **The attested-reading rescorer is gone**, along with the datastore it read:
+  the candidate inventory, the proposal energies and the trust gate. The new
+  weights fold in what it was doing — on 24 hand-checked pointed words the
+  default decode goes from 13/24 to 17/24 segments right without it. The
+  aligner stays (it validates lexicon entries) and so does the force lexicon.
+  `G2P(datastore=..., tau=..., mask=..., inventory_sources=...)` and
+  `rescoring_enabled` are removed.
+- `niqqud="use"` is unaffected and still constrains the exact-MAP decode: 24/24
+  segments and 18/24 exact on that set, and 7/7 against the reference readings
+  on the pointed possessive-suffix words.
+
 ## 0.5.0
 
 - **Vowelized (pointed) input is supported.** Niqqud and cantillation are not in

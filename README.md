@@ -2,7 +2,7 @@
 
 Convert unvocalized Hebrew text into IPA for TTS, speech technology, and
 spoken-language research. Trained without any benchmark-derived data; on 126k
-words of unseen podcast speech it scores 93.5% word accuracy.
+words of unseen podcast speech it scores 93.3% word accuracy.
 
 ## Benchmark
 
@@ -12,15 +12,15 @@ words of unseen podcast speech it scores 93.5% word accuracy.
 |---|---:|---:|---:|---:|---:|
 | **OVERALL** | **86.2** | 85.9 | 84.6 | 78.2 | 66.4 |
 | Gender | **99.3** | 99.3 | 77.0 | 59.9 | 37.5 |
-| Min. Stress Pairs | **90.7** | 90.7 | 88.0 | 80.7 | 78.7 |
-| Stress Homographs | 90.6 | 90.6 | **92.6** | 79.8 | 78.3 |
-| Names | **80.0** | 79.3 | 75.3 | 67.3 | 68.0 |
-| Acronyms | **79.6** | 79.0 | 79.0 | 56.6 | 37.5 |
-| Slang | **76.9** | 76.9 | 71.2 | 59.0 | 41.7 |
+| Min. Stress Pairs | 90.0 | **91.3** | 88.0 | 80.7 | 78.7 |
+| Stress Homographs | **91.1** | 90.6 | 92.6 | 79.8 | 78.3 |
+| Names | 80.0 | **82.0** | 75.3 | 67.3 | 68.0 |
+| Acronyms | **79.6** | 76.3 | 79.0 | 56.6 | 37.5 |
+| Slang | **75.6** | 75.0 | 71.2 | 59.0 | 41.7 |
 | Penultimate Stress | 85.4 | 86.1 | **89.4** | 82.1 | 60.9 |
-| Rare Phonemes | 55.6 | 53.0 | **57.6** | 41.1 | 19.9 |
-| Foreign | **78.7** | 78.1 | 71.6 | 56.8 | 36.1 |
-| Colloquial | 52.3 | 51.7 | 25.2 | **54.3** | 9.3 |
+| Rare Phonemes | **58.3** | 55.0 | 57.6 | 41.1 | 19.9 |
+| Foreign | **78.1** | 77.4 | 71.6 | 56.8 | 36.1 |
+| Colloquial | 51.0 | 51.0 | 25.2 | **54.3** | 9.3 |
 | ILSpeech-test | 93.2 | 93.1 | **96.0** | 92.5 | 85.5 |
 
 ## Install
@@ -47,7 +47,7 @@ leaves your build untouched.
 **From this repo (no PyPI):**
 
 ```console
-uv sync
+uv sync --extra cpu     # or --extra gpu
 ```
 
 Then run the example:
@@ -56,24 +56,29 @@ Then run the example:
 uv run python examples/basic.py
 ```
 
-The ONNX weights (~310 MB) and the rescoring datastore download automatically
-from Hugging Face on first use and are cached locally. No separate
-`hf download` step is required.
+The ONNX weights (~310 MB) download automatically from Hugging Face on first
+use and are cached locally. No separate `hf download` step is required.
 
 ## Usage
 
 ```python
 from renikud_onnx import G2P
 
-g2p = G2P()  # downloads notmax123/RenikudPlus model.onnx + datastore.json if needed
+g2p = G2P()  # downloads notmax123/RenikudPlus model.onnx if needed
 print(g2p.phonemize("שלום לכולם"))
 # → ʃalˈom lekulˈam
 ```
 
-Pass a local path if you already have the weights:
+The weights are the only file the package needs — there is no sidecar JSON. The
+vocabularies, per-letter constraints and cascade conditioning all travel inside
+the `.onnx` metadata.
+
+Pass a local path if you already have the weights, or name the quantized build
+to download that one instead:
 
 ```python
-g2p = G2P("model.onnx")   # or model_int8.onnx — 4× smaller, ~0.3 pt overall
+g2p = G2P("model.onnx")                    # a local file
+g2p = G2P(filename="model_int8.onnx")      # 4× smaller, within ~0.3 pt overall
 ```
 
 For a gender-conditioned ONNX model, pass `speaker` and `target_speaker` as
@@ -90,9 +95,6 @@ g2p.phonemize("היא רצה", speaker=2, target_speaker=2)
   per-letter legality and "stress needs a vowel" as hard constraints, so the
   one-stress-per-word choice can flip the vowel and consonant too. Pass
   `exact_map=False` for the old greedy argmax.
-- **Attested-reading rescorer**, on by default whenever `datastore.json` is
-  found beside the weights (it is, after the automatic download). A trust gate
-  at `tau=0.2` over corpus-attested readings; `datastore=None` switches it off.
 - **Force lexicon** — `G2P(..., lexicon={"סבתא": "sˈavta"})` or a TSV path. Off
   unless passed; wins wherever it matches.
 - **Hebrew number front end**, from
@@ -151,7 +153,7 @@ enforced, so partially or sloppily pointed text degrades to the default decode
 instead of breaking.
 
 On 24 hand-checked pointed words, `"use"` gets **24/24 vowels and consonants**
-right against 13/24 for `"strip"`; including stress, 19/24 against 13/24. On the
+right against 17/24 for `"strip"`; including stress, 18/24 against 16/24. On the
 seven pointed possessive-suffix words from the field report (`בְּנֹתָיו`,
 `צִדְקֹתָיו`, `קֳדָשָׁיו`, …) it matches the reference reading **7/7**.
 
@@ -168,8 +170,8 @@ print(g2p.vocalize("שלום לכולם"))
 
 Niqqud has no stress mark, so predicted stress is not represented in this output
 (it is in `phonemize`). Diacritization is phonetically faithful but not
-publication-grade — e.g. shva in clusters is omitted. The IPA-side rescorer and
-force lexicon rewrite IPA strings and so do not apply here.
+publication-grade — e.g. shva in clusters is omitted. The force lexicon
+rewrites IPA strings and so does not apply here.
 
 
 ## Citation

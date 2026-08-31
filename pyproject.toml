@@ -1,6 +1,6 @@
 [project]
 name = "renikud-plus"
-version = "0.5.0"
+version = "0.6.0"
 description = "ONNX Runtime inference for Hebrew grapheme-to-phoneme conversion (ReNikud Plus)"
 readme = "README.md"
 requires-python = ">=3.12"

@@ -9,21 +9,14 @@ Points in the INPUT are ignored by default and can instead be read as evidence:
 `G2P(niqqud="use")` pins the vowel signs, dagesh qal and shin/sin dot into the
 decode, so pointed text disambiguates what the skeleton cannot.
 
-The Hebrew number front end comes from the `hebrew-num2words` package. Two
-decode layers sit beyond the neural graph:
-
-  1. the attested-reading rescorer. ON when `datastore.json` is found next to
-     the model file, at its tuned settings (tau = 0.2, corpus mask). It ships in
-     the same Hugging Face repo as the weights, so it is downloaded and enabled
-     by default. Pass `datastore=None` to switch it off, or a path to point it
-     elsewhere.
-  2. a force-only runtime lexicon: `lexicon=` — a surface -> IPA map that always
-     wins where it matches. Off unless you pass one.
+The Hebrew number front end comes from the `hebrew-num2words` package. One
+optional decode layer sits beyond the neural graph: a force-only runtime
+lexicon (`lexicon=` — a surface -> IPA map that always wins where it matches).
+Off unless you pass one.
 """
 from __future__ import annotations
 
 import json
-import os
 import re
 import unicodedata
 from pathlib import Path
@@ -42,8 +35,6 @@ except ModuleNotFoundError as exc:  # pragma: no cover - depends on the install
         "    pip install 'renikud-plus[gpu]'"
     ) from exc
 
-#: rescoring datastore looked for beside the model file when `datastore="auto"`.
-DEFAULT_DATASTORE_NAME = "datastore.json"
 
 DEFAULT_HF_REPO = "notmax123/RenikudPlus"
 DEFAULT_MODEL_FILENAME = "model.onnx"
@@ -474,23 +465,15 @@ def _consonant_point(letter: str, consonant: str) -> str:
 
 
 # ==========================================================================
-# ATTESTED-READING RESCORING, AND THE FORCE-ONLY LEXICON
+# THE ALIGNER, AND THE FORCE-ONLY LEXICON
 # --------------------------------------------------------------------------
-# The rescorer is ON when a datastore is found beside the model file and OFF
-# with `datastore=None`; the force lexicon is off unless `lexicon=` is passed.
-# The candidate inventory, the proposal energies, the trust gate and the aligner
-# all live in this file, with their constants and tie-breaks intact.
+# The force lexicon is off unless `lexicon=` is passed; the aligner validates
+# its entries at load time.
 # ==========================================================================
 
-# --- source bits of the candidate inventory --------------------------------
-SRC_LEX, SRC_HOMO, SRC_CORPUS, SRC_OLD = 1, 2, 4, 8
 
-#: every source except SRC_OLD.
-MASK_ALL = SRC_LEX | SRC_HOMO | SRC_CORPUS
-#: the default: corpus attestation only.
-MASK_CORPUS = SRC_CORPUS
 
-#: punctuation stripped off an IPA token before comparing it to a proposal.
+#: punctuation stripped off an IPA token before comparing it to a replacement.
 PUNCT_STRIP = ".,?!:;\"'()-—…«»"
 
 _IPA_ASCII_FIXUPS = {"g": "ɡ", "x": "χ", "r": "ʁ"}
@@ -503,51 +486,10 @@ def normalize_ipa(text: str) -> str:
     return text
 
 
-# --- label vocabularies ----------------------------------------------------
-VOWEL_SYMBOLS = ("∅", "a", "e", "i", "o", "u")
-VOWEL_TO_ID = {v: i for i, v in enumerate(VOWEL_SYMBOLS)}
-NUM_VOWEL_CLASSES = len(VOWEL_SYMBOLS)
-
-CONSONANT_SYMBOLS = (
-    "∅",
-    "b", "v", "d", "h", "z", "χ", "t", "j", "k", "l", "m", "n", "s", "f", "p",
-    "ts", "tʃ", "w", "ʔ", "ɡ", "ʁ", "ʃ", "ʒ", "dʒ",
-)
-CONSONANT_TO_ID = {c: i for i, c in enumerate(CONSONANT_SYMBOLS)}
-
-_VOWELS_SET = frozenset("aeiou")
 
 
-def chunk_to_labels(chunk: str) -> tuple[str, str, int]:
-    """Aligned IPA chunk -> (consonant, vowel, stress)."""
-    if not chunk or chunk == " ":
-        return ("∅", "∅", 0)
-    pos = 0
-    stress = 0
-    if STRESS_MARK in chunk:
-        stress = 1
-        chunk = chunk.replace(STRESS_MARK, "")
-    consonant = "∅"
-    for multi in ("tʃ", "dʒ", "ts"):
-        if chunk.startswith(multi):
-            consonant = multi
-            pos = len(multi)
-            break
-    else:
-        if pos < len(chunk) and chunk[pos] not in _VOWELS_SET:
-            consonant = chunk[pos]
-            pos += 1
-    vowel = chunk[pos:] if pos < len(chunk) else "∅"
-    if not vowel:
-        vowel = "∅"
-    if vowel.endswith("χ"):
-        consonant = "χ"
-        vowel = vowel[:-1] or "∅"
-    return (
-        consonant if consonant in CONSONANT_TO_ID else "∅",
-        vowel if vowel in VOWEL_TO_ID else "∅",
-        stress,
-    )
+
+
 
 
 # --- the aligner -----------------------------------------------------------
@@ -699,170 +641,18 @@ def align_word(heb_word: str, ipa_word: str, cells: tuple = ()) -> list[tuple[st
     return list(result) if result is not None else None
 
 
-def candidate_labels(heb_word: str, ipa_word: str,
-                     cells: tuple = ()) -> list[tuple[int, int, int]] | None:
-    """eval_candidate_rescore.candidate_labels — per-letter (cid, vid, stress)."""
-    aligned = align_word(heb_word, ipa_word, cells)
-    if aligned is None:
-        return None
-    out = []
-    for _, chunk in aligned:
-        c, v, s = chunk_to_labels(chunk)
-        cid, vid = CONSONANT_TO_ID.get(c), VOWEL_TO_ID.get(v)
-        if cid is None or vid is None:
-            return None
-        out.append((cid, vid, s))
-    return out
 
 
-# --- the candidate inventory -----------------------------------------------
-_VE_RE = re.compile(r"^(ve|va|vi|v)")
-_LEGAL_IPA_RE = re.compile(r"^[abdefghijklmnoprstuvwzɡʁʃʒʔˈχ]+$")
 
 
-def _inv_clean(ipa: str) -> str | None:
-    ipa = normalize_ipa(ipa.strip())
-    return ipa if ipa and _LEGAL_IPA_RE.match(ipa) else None
 
 
-def _inv_heb_ok(w: str) -> bool:
-    """A separator-bearing surface (במד״א, ג'אז) can never be a candidate at any
-    tau. The force lexicon exists for exactly this class."""
-    return bool(w) and all(_is_hebrew(c) for c in w)
 
 
-def _inv_veva_surface(readings: list[str]) -> bool:
-    seen: dict[str, str] = {}
-    for r in readings:
-        m = _VE_RE.match(r)
-        if not m:
-            continue
-        stem = r[m.end():]
-        if stem in seen and seen[stem] != r:
-            return True
-        seen[stem] = r
-    return False
 
 
-def build_inventory(datastore: str,
-                    lexnikud: str | None = None,
-                    homograph_inventory: str | None = None,
-                    old_lexicon: str | None = None,
-                    corpus_min_total: int = 5,
-                    corpus_min_count: int = 3,
-                    corpus_min_share: float = 0.05,
-                    homo_min_share: float = 0.02) -> tuple[dict, dict]:
-    """Build the candidate inventory. Every source path is supplied by the caller.
-
-    Only `datastore` is required, and it is the only source shipped beside the
-    model; the other three are optional extras.
-    """
-    surf: dict[str, dict[str, int]] = {}
-
-    def add(w: str, ipa: str, bit: int) -> None:
-        if not _inv_heb_ok(w):
-            return
-        c = _inv_clean(ipa)
-        if c is None:
-            return
-        d = surf.setdefault(w, {})
-        d[c] = d.get(c, 0) | bit
-
-    stats: dict = {}
-
-    n = 0
-    if lexnikud:
-        with open(lexnikud, encoding="utf-8") as fh:
-            fh.readline()
-            for line in fh:
-                p = line.rstrip("\n").split("\t")
-                if len(p) == 3:
-                    add(p[1], p[2], SRC_LEX)
-                    n += 1
-    stats["lexnikud_rows"] = n
-
-    n = 0
-    if homograph_inventory:
-        with open(homograph_inventory, encoding="utf-8") as fh:
-            inv = json.load(fh)
-        for w, d in inv.items():
-            tot = max(d.get("total", 0), 1)
-            for ipa, c in d.get("readings", {}).items():
-                if c / tot >= homo_min_share:
-                    add(w, ipa, SRC_HOMO)
-                    n += 1
-    stats["homograph_inventory_readings"] = n
-
-    with open(datastore, encoding="utf-8") as fh:
-        ds = json.load(fh)
-    n = 0
-    for w, d in ds.items():
-        tot = d.get("total", 0)
-        if tot < corpus_min_total:
-            continue
-        for ipa, c in d.get("readings", {}).items():
-            if c >= corpus_min_count and c / tot >= corpus_min_share:
-                add(w, ipa, SRC_CORPUS)
-                n += 1
-    stats["corpus_datastore_readings"] = n
-
-    n = 0
-    if old_lexicon:
-        with open(old_lexicon, encoding="utf-8") as fh:
-            head = fh.readline()
-            if "word" not in head:
-                fh.seek(0)
-            for line in fh:
-                p = line.rstrip("\n").split("\t")
-                if len(p) < 2 or not p[0] or not p[1]:
-                    continue
-                for ipa in p[1].split(";"):
-                    add(p[0].strip(), ipa, SRC_OLD)
-                    n += 1
-    stats["old_lexicon_readings"] = n
-
-    dropped = [w for w, r in surf.items() if _inv_veva_surface(list(r))]
-    for w in dropped:
-        del surf[w]
-    stats["veva_surfaces_dropped"] = len(dropped)
-    stats["total_surfaces"] = len(surf)
-    stats["total_readings"] = sum(len(r) for r in surf.values())
-    stats["multi_reading_surfaces"] = sum(1 for r in surf.values() if len(r) > 1)
-    return surf, stats
 
 
-# --- the trust gate --------------------------------------------------------
-def apply_gate(rec: dict, tau: float, mask: int) -> tuple[str, list[dict]]:
-    """Take an attested reading wherever it costs less than `tau` nats/letter.
-
-    `rec` is `{"base": <ipa string>, "props": [...]}`.
-    """
-    words = rec["base"].split()
-    touched = []
-    for p in rec["props"]:
-        best = None
-        for ipa, delta, src in p["cands"]:
-            if not (src & mask):
-                continue
-            if delta < -tau:
-                continue
-            if best is None or delta > best[1]:
-                best = (ipa, delta)
-        if best is None or best[0] == p["base_ipa"]:
-            continue
-        wi = p["wi"]
-        if wi >= len(words):
-            continue
-        tok = words[wi]
-        lead = len(tok) - len(tok.lstrip(PUNCT_STRIP))
-        trail = len(tok) - len(tok.rstrip(PUNCT_STRIP))
-        core = tok[lead: len(tok) - trail] if trail else tok[lead:]
-        if core != p["base_ipa"]:
-            continue
-        words[wi] = tok[:lead] + best[0] + (tok[len(tok) - trail:] if trail else "")
-        touched.append({"wi": wi, "surface": p["surface"], "from": p["base_ipa"],
-                        "to": best[0], "delta": best[1]})
-    return " ".join(words), touched
 
 
 # ==========================================================================
@@ -882,11 +672,8 @@ LEX_EDGE_STRIP = ".,?!:;()[]{}…«»־–—"
 class ForceLexicon:
     """A user-supplied `surface -> IPA` map that ALWAYS wins where it matches.
 
-    It is NOT a candidate: it never enters `apply_gate`, is never scored against
-    the model, and is applied after the rescoring pass. It is keyed on the RAW
-    surface **including separators** (gershayim, geresh, hyphen), normalized with
-    this module's `normalize_graphemes` — precisely the key space the candidate
-    store cannot hold.
+    It is keyed on the RAW surface **including separators** (gershayim, geresh,
+    hyphen), normalized with this module's `normalize_graphemes`.
 
     Every entry is validated with `align_word` at load time. Entries that fail
     are collected and reported; by default the constructor raises with the full
@@ -986,7 +773,7 @@ def apply_force_lexicon(text: str, ipa: str, lex: "ForceLexicon") -> tuple[str, 
     """Overwrite every output word whose Hebrew token is in `lex`.
 
     Word alignment is positional (`re.finditer(r"\\S+", ...)` on the Hebrew vs
-    `.split()` on the IPA), the same correspondence `apply_gate` uses; if the two
+    `.split()` on the IPA); if the two
     counts disagree the override is skipped for that string rather than guessed.
     Leading/trailing IPA punctuation on the replaced token is preserved.
     """
@@ -1014,10 +801,6 @@ def apply_force_lexicon(text: str, ipa: str, lex: "ForceLexicon") -> tuple[str, 
 class G2P:
     def __init__(self, model_path: str | Path | None = None, exact_map: bool = True,
                  chunk_chars: int | None = SAFE_CHUNK_CHARS,
-                 datastore: str | None = "auto",
-                 tau: float = 0.2,
-                 mask: str | int = "corpus",
-                 inventory_sources: dict | None = None,
                  align_cells=(),
                  lexicon=None,
                  on_invalid_lexicon: str = "raise",
@@ -1027,9 +810,7 @@ class G2P:
                  filename: str = DEFAULT_MODEL_FILENAME,
                  cache_dir: str | Path | None = None) -> None:
         # `model_path=None` downloads the weights from Hugging Face
-        # (`notmax123/RenikudPlus`) on first use and caches them; the rescoring
-        # datastore ships in the same repo and is fetched beside them, so the
-        # default constructor gets the full decode stack with no manual steps.
+        # (`notmax123/RenikudPlus`) on first use and caches them.
         #
         # `niqqud` says what to do with points in the INPUT. "strip" (the
         # default) drops them and predicts from the skeleton, as before.
@@ -1044,39 +825,17 @@ class G2P:
         # `chunk_chars` is the long-input decode window. The default 2,046 is the
         # encoder's hard wall (2,048 positions - CLS/SEP); None disables windowing
         # and lets onnxruntime raise past the wall.
-        #
-        # THE RESCORING LAYER. `datastore="auto"` (the default) looks for
-        # `datastore.json` beside the model file and switches the layer on
-        # if it is there; `datastore=None` switches it off; a path points it
-        # somewhere else. `lexicon=None` -> the force map is never built.
-        #   datastore          : corpus datastore JSON (the SRC_CORPUS bit),
-        #                        "auto", or None
-        #   tau                : trust gate, nats/letter (0.2 is tuned for these
-        #                        weights; re-tune it for any other model)
-        #   mask               : "corpus" (the default), "all", or an int bitmask
-        #   inventory_sources  : optional extra inventory sources
-        #   align_cells        : () standard (default), or "extended"
+        #   align_cells        : () standard (default), or "extended" -- widens the
+        #                        aligner used to validate `lexicon` entries.
         #   lexicon            : dict or TSV path, force-only override
         self._chunk_chars = chunk_chars
         if niqqud not in ("strip", "use"):
             raise ValueError('niqqud must be "strip" or "use"')
         self.niqqud = niqqud
-        downloaded = model_path is None
-        if downloaded:
+        if model_path is None:
             model_path = download_model(repo_id=repo_id, filename=filename,
                                         cache_dir=cache_dir)
         self.model_path = str(model_path)
-        if datastore == "auto":
-            _side = os.path.join(os.path.dirname(os.path.abspath(self.model_path)),
-                                 DEFAULT_DATASTORE_NAME)
-            if not os.path.exists(_side) and downloaded:
-                # Same repo, same snapshot directory as the weights we just
-                # fetched -- so the side lookup finds it on the next line.
-                _side = download_model(repo_id=repo_id,
-                                       filename=DEFAULT_DATASTORE_NAME,
-                                       cache_dir=cache_dir)
-            datastore = _side if os.path.exists(_side) else None
-        self.datastore_path = datastore
         self._session = ort.InferenceSession(self.model_path, session_options)
         meta = self._session.get_modelmeta().custom_metadata_map
         self._vocab: dict[str, int] = json.loads(meta["vocab"])
@@ -1114,95 +873,13 @@ class G2P:
             for letter, allowed in self._letter_constraints.items():
                 self._forbidden[ord(letter) - ALEF_ORD, list(allowed)] = False
 
-        # ---- the rescoring layer --------------------------------------------
+        # ---- the force lexicon ----------------------------------------------
         self._align_cells = resolve_align_cells(align_cells)
-        self._tau = float(tau)
-        if isinstance(mask, str):
-            key = mask.strip().lower()
-            if key not in ("corpus", "all"):
-                raise ValueError("mask must be 'corpus', 'all' or an int bitmask")
-            self._mask = MASK_CORPUS if key == "corpus" else MASK_ALL
-        else:
-            self._mask = int(mask)
-        self._surfaces = None
-        self.inventory_stats: dict | None = None
-        self._cand_cache: dict = {}
-        if datastore is not None:
-            if not self.supports_exact_map:
-                raise ValueError(
-                    "the tau rescorer scores candidates against the exact-MAP cascade "
-                    "energy; this model was exported without the cascade conditioning "
-                    "metadata, so the rescorer cannot be enabled on it")
-            srcs = dict(inventory_sources or {})
-            unknown = set(srcs) - {"lexnikud", "homograph_inventory", "old_lexicon"}
-            if unknown:
-                raise ValueError(f"unknown inventory_sources key(s): {sorted(unknown)}")
-            self._surfaces, self.inventory_stats = build_inventory(datastore, **srcs)
-        self.last_touched: list = []
         self.last_forced: list = []
         self._lexicon = None
         if lexicon is not None:
             self._lexicon = ForceLexicon(lexicon, align_cells=self._align_cells,
                                          on_invalid=on_invalid_lexicon)
-
-    @property
-    def rescoring_enabled(self) -> bool:
-        return self._surfaces is not None
-
-    def _cand_labels(self, surface: str, ipa: str):
-        key = (surface, ipa)
-        if key not in self._cand_cache:
-            try:
-                self._cand_cache[key] = candidate_labels(surface, ipa, self._align_cells)
-            except Exception:
-                self._cand_cache[key] = None
-        return self._cand_cache[key]
-
-    def _propose(self, text: str, base: str, E: np.ndarray, best_u: np.ndarray,
-                 best_s: np.ndarray, char_tok: dict, stressed: set) -> list[dict]:
-        """Candidate loop over the energies the exact-MAP decode already computed."""
-        props: list[dict] = []
-        base_words = base.split()
-        spans = list(re.finditer(r"\S+", text))
-        if len(base_words) != len(spans):
-            return props
-        for wi, mt in enumerate(spans):
-            word = mt.group()
-            if "-" in word:
-                continue  # hyphen compounds are two prosodic words; out of scope
-            core = "".join(ch for ch in word if _is_hebrew(ch))
-            cands_map = self._surfaces.get(core)
-            if not core or not cands_map:
-                continue
-            idxs = [i for i in range(mt.start(), mt.end()) if _is_hebrew(text[i])]
-            if len(idxs) != len(core) or idxs != list(range(idxs[0], idxs[0] + len(core))):
-                continue
-            if any(i not in char_tok for i in idxs):
-                continue
-            toks = [char_tok[i] for i in idxs]
-            free = sum(float(best_s[t] if t in stressed else best_u[t]) for t in toks)
-            base_ipa = base_words[wi].strip(PUNCT_STRIP)
-            out_c = []
-            for ipa, src in cands_map.items():
-                labels = self._cand_labels(core, ipa)
-                if labels is None or len(labels) != len(toks):
-                    continue
-                sc = 0.0
-                ok = True
-                for t, (c, v, s) in zip(toks, labels):
-                    e = float(E[t, c, v, s])
-                    if e < NEG / 2:
-                        ok = False
-                        break
-                    sc += e
-                if not ok:
-                    continue
-                out_c.append([ipa, round((sc - free) / len(toks), 5), src])
-            if out_c:
-                out_c.sort(key=lambda x: -x[1])
-                props.append({"wi": wi, "surface": core, "base_ipa": base_ipa,
-                              "cands": out_c[:6]})
-        return props
 
     def _tokenize(self, text: str) -> tuple[list[int], list[int], list[tuple[int, int]]]:
         """Tokenize character by character, return ids, mask, and offset mapping."""
@@ -1257,7 +934,6 @@ class G2P:
         consonant_logits: np.ndarray,
         vowel_logits: np.ndarray,
         stress_logits: np.ndarray,
-        return_energy: bool = False,
         constraints: dict | None = None,
     ):
         """Closed-form MAP over the joint cascade energy.
@@ -1344,9 +1020,6 @@ class G2P:
                 stressed.add(max(cands, key=lambda t: gain[t]))
 
         flat = np.where(np.isin(np.arange(S), list(stressed)), arg_s, arg_u)
-        if return_energy:
-            # the rescorer scores candidates against exactly these energies.
-            return flat // V, flat % V, stressed, E, best_u, best_s, char_tok
         return flat // V, flat % V, stressed
 
     def phonemize(
@@ -1417,8 +1090,7 @@ class G2P:
 
         Returns the per-token labels both output renderings are built from:
         ``(offsets, consonant_preds, vowel_preds, stressed_positions,
-        consonant_logits, energy)``. `energy` is the exact-MAP cascade tensors
-        the rescorer needs, or None when the rescorer is off.
+        consonant_logits)``.
         """
         ids, mask, offsets = self._tokenize(normalized)
 
@@ -1446,29 +1118,16 @@ class G2P:
                 "this model was exported without the cascade conditioning metadata; "
                 "re-export it, or pass exact_map=False for the greedy decode"
             )
-        energy = None
         if use_exact:
-            out = self._exact_map(
+            consonant_preds, vowel_preds, stressed_positions = self._exact_map(
                 offsets,
                 normalized,
                 consonant_logits[0].astype(np.float32),
                 vowel_logits[0].astype(np.float32),
                 stress_logits[0].astype(np.float32),
-                return_energy=self._surfaces is not None,
                 constraints=constraints,
             )
-            if self._surfaces is not None:
-                (consonant_preds, vowel_preds, stressed_positions,
-                 _E, _best_u, _best_s, _char_tok) = out
-                energy = (_E, _best_u, _best_s, _char_tok)
-            else:
-                consonant_preds, vowel_preds, stressed_positions = out
         else:
-            if self._surfaces is not None:
-                raise ValueError(
-                    "the tau rescorer is defined on the exact-MAP cascade energies; "
-                    "it cannot run with exact_map=False")
-
             consonant_preds = consonant_logits[0].argmax(axis=-1)
             vowel_preds = vowel_logits[0].argmax(axis=-1)
             stressed_positions = self._best_stress_per_word(
@@ -1476,7 +1135,7 @@ class G2P:
             )
 
         return (offsets, consonant_preds, vowel_preds, stressed_positions,
-                consonant_logits[0], energy)
+                consonant_logits[0])
 
     def _labels_at(self, char: str, tok_idx: int, consonant_preds, vowel_preds,
                    consonant_logits) -> tuple[str, str]:
@@ -1503,7 +1162,7 @@ class G2P:
     ) -> str:
         """Decode one window to IPA."""
         (offsets, consonant_preds, vowel_preds, stressed_positions,
-         consonant_logits, energy) = self._forward(
+         consonant_logits) = self._forward(
             normalized, speaker, target_speaker, exact_map, constraints)
 
         result = []
@@ -1561,26 +1220,18 @@ class G2P:
 
         out_str = "".join(result)
 
-        # ---- post-passes (no-ops unless enabled at construction) ------------
-        # Both operate on whitespace-delimited words, so they normalize runs of
-        # inter-word whitespace to single spaces exactly as the reference
-        # path does (the gate ends in `" ".join(words)`). Leading and
-        # trailing whitespace of the window is preserved so that concatenating
-        # windows stays lossless; the reference texts carry none, so a
-        # single-window decode is bit-identical to the reference.
-        if self._surfaces is not None or self._lexicon is not None:
+        # ---- force-lexicon post-pass (no-op unless a lexicon was passed) ----
+        # Operates on whitespace-delimited words, normalizing runs of inter-word
+        # whitespace to single spaces. Leading/trailing whitespace of the window
+        # is preserved so that concatenating windows stays lossless; the
+        # reference texts carry none, so a single-window decode is bit-identical
+        # to the reference.
+        if self._lexicon is not None:
             lead_ws = out_str[:len(out_str) - len(out_str.lstrip())]
             trail_ws = out_str[len(out_str.rstrip()):]
             body = out_str.strip()
-            if self._surfaces is not None and energy is not None:
-                _E, _best_u, _best_s, _char_tok = energy
-                props = self._propose(normalized, body, _E, _best_u, _best_s,
-                                      _char_tok, stressed_positions)
-                body, self.last_touched = apply_gate(
-                    {"base": body, "props": props}, self._tau, self._mask)
-            if self._lexicon is not None:
-                body, self.last_forced = apply_force_lexicon(
-                    normalized.strip(), body, self._lexicon)
+            body, self.last_forced = apply_force_lexicon(
+                normalized.strip(), body, self._lexicon)
             out_str = lead_ws + body + trail_ws
 
         return out_str
@@ -1603,9 +1254,8 @@ class G2P:
         but not publication-grade (e.g. shva in clusters is omitted), and niqqud has
         no stress mark, so the stress the model predicts is not represented here.
 
-        The IPA-side post-passes (the attested-reading rescorer and the force
-        lexicon) rewrite IPA strings, so they do not apply to this output; niqqud
-        comes straight off the cascade decode.
+        The force lexicon rewrites IPA strings, so it does not apply to this
+        output; niqqud comes straight off the cascade decode.
 
         With `niqqud="use"` the points in the input constrain that decode, so
         this re-points pointed text rather than re-guessing it.
@@ -1632,7 +1282,7 @@ class G2P:
     ) -> str:
         """Decode one window to pointed Hebrew."""
         (offsets, consonant_preds, vowel_preds, _stressed,
-         consonant_logits, _energy) = self._forward(
+         consonant_logits) = self._forward(
             normalized, speaker, target_speaker, exact_map, constraints)
 
         out: list[str] = []
