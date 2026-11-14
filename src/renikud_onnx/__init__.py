@@ -38,10 +38,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - depends on the install
 
 DEFAULT_HF_REPO = "notmax123/RenikudPlus"
 DEFAULT_MODEL_FILENAME = "model.onnx"
-# The model repo commit this release was built and tested against, so an
-# installed version always loads the weights it ships with, however the repo's
-# `main` evolves. Bump it together with the package version when the weights
-# change.
+# Model repo commit this release was tested against.
 DEFAULT_HF_REVISION = "679c56ca449d41873fb8ff7711ddf7563d28198f"
 
 
@@ -51,11 +48,7 @@ def download_model(
     cache_dir: str | Path | None = None,
     revision: str | None = DEFAULT_HF_REVISION,
 ) -> str:
-    """Download one file from the Hugging Face model repo (cached after the first call).
-
-    `revision` defaults to the commit this release was tested against; pass
-    `"main"` (or any branch, tag or commit) to fetch something else.
-    """
+    """Download one file from the Hugging Face model repo (cached after the first call)."""
     from huggingface_hub import hf_hub_download
 
     return hf_hub_download(
@@ -822,9 +815,7 @@ class G2P:
                  cache_dir: str | Path | None = None,
                  revision: str | None = DEFAULT_HF_REVISION) -> None:
         # `model_path=None` downloads the weights from Hugging Face
-        # (`notmax123/RenikudPlus`) on first use and caches them. `revision`
-        # pins the model repo commit (default: the one this release was tested
-        # against); pass "main" to track the latest upload.
+        # (`notmax123/RenikudPlus`) on first use and caches them.
         #
         # `niqqud` says what to do with points in the INPUT. "strip" (the
         # default) drops them and predicts from the skeleton, as before.
