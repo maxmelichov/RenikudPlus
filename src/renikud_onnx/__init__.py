@@ -38,10 +38,10 @@ except ModuleNotFoundError as exc:  # pragma: no cover - depends on the install
 
 DEFAULT_HF_REPO = "notmax123/RenikudPlus"
 DEFAULT_MODEL_FILENAME = "model.onnx"
-# The model repo commit this release was built and tested against. Pinning it
-# means a published wheel keeps loading the weights it was made for even after
-# the repo's `main` moves on (0.5.0 broke when `datastore.json` left `main`).
-# Bump it together with the package version whenever the weights change.
+# The model repo commit this release was built and tested against, so an
+# installed version always loads the weights it ships with, however the repo's
+# `main` evolves. Bump it together with the package version when the weights
+# change.
 DEFAULT_HF_REVISION = "679c56ca449d41873fb8ff7711ddf7563d28198f"
 
 
