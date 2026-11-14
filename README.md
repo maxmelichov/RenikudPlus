@@ -81,6 +81,10 @@ g2p = G2P("model.onnx")                    # a local file
 g2p = G2P(filename="model_int8.onnx")      # 4× smaller, within ~0.3 pt overall
 ```
 
+Each release pins the model repo commit it was tested against, so an installed
+version keeps working when new weights are uploaded. To try the latest upload
+anyway, pass `G2P(revision="main")`.
+
 For a gender-conditioned ONNX model, pass `speaker` and `target_speaker` as
 `0` (unknown), `1` (male), or `2` (female):
 

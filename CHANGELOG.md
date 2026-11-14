@@ -2,6 +2,12 @@
 
 ## 0.6.0
 
+- **The model download is pinned to a Hugging Face commit**
+  (`DEFAULT_HF_REVISION`), so this wheel keeps loading the weights it was built
+  for when the model repo's `main` changes — the failure that broke 0.5.0 on
+  PyPI (`datastore.json` 404, #4). `G2P(revision=...)` and
+  `download_model(revision=...)` override it; `revision="main"` tracks the
+  latest upload.
 - **Synced with the Hugging Face model repo**, which re-uploaded the weights and
   dropped `datastore.json`. New `model.onnx` downloads automatically on first
   use; the published benchmark moves to 93.3% word accuracy on 126k words of

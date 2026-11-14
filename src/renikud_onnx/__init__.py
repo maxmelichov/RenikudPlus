@@ -38,19 +38,30 @@ except ModuleNotFoundError as exc:  # pragma: no cover - depends on the install
 
 DEFAULT_HF_REPO = "notmax123/RenikudPlus"
 DEFAULT_MODEL_FILENAME = "model.onnx"
+# The model repo commit this release was built and tested against. Pinning it
+# means a published wheel keeps loading the weights it was made for even after
+# the repo's `main` moves on (0.5.0 broke when `datastore.json` left `main`).
+# Bump it together with the package version whenever the weights change.
+DEFAULT_HF_REVISION = "679c56ca449d41873fb8ff7711ddf7563d28198f"
 
 
 def download_model(
     repo_id: str = DEFAULT_HF_REPO,
     filename: str = DEFAULT_MODEL_FILENAME,
     cache_dir: str | Path | None = None,
+    revision: str | None = DEFAULT_HF_REVISION,
 ) -> str:
-    """Download one file from the Hugging Face model repo (cached after the first call)."""
+    """Download one file from the Hugging Face model repo (cached after the first call).
+
+    `revision` defaults to the commit this release was tested against; pass
+    `"main"` (or any branch, tag or commit) to fetch something else.
+    """
     from huggingface_hub import hf_hub_download
 
     return hf_hub_download(
         repo_id=repo_id,
         filename=filename,
+        revision=revision,
         cache_dir=None if cache_dir is None else str(cache_dir),
     )
 
@@ -808,9 +819,12 @@ class G2P:
                  session_options: ort.SessionOptions | None = None,
                  repo_id: str = DEFAULT_HF_REPO,
                  filename: str = DEFAULT_MODEL_FILENAME,
-                 cache_dir: str | Path | None = None) -> None:
+                 cache_dir: str | Path | None = None,
+                 revision: str | None = DEFAULT_HF_REVISION) -> None:
         # `model_path=None` downloads the weights from Hugging Face
-        # (`notmax123/RenikudPlus`) on first use and caches them.
+        # (`notmax123/RenikudPlus`) on first use and caches them. `revision`
+        # pins the model repo commit (default: the one this release was tested
+        # against); pass "main" to track the latest upload.
         #
         # `niqqud` says what to do with points in the INPUT. "strip" (the
         # default) drops them and predicts from the skeleton, as before.
@@ -834,7 +848,7 @@ class G2P:
         self.niqqud = niqqud
         if model_path is None:
             model_path = download_model(repo_id=repo_id, filename=filename,
-                                        cache_dir=cache_dir)
+                                        cache_dir=cache_dir, revision=revision)
         self.model_path = str(model_path)
         self._session = ort.InferenceSession(self.model_path, session_options)
         meta = self._session.get_modelmeta().custom_metadata_map
