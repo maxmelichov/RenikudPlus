@@ -2,17 +2,20 @@
 
 ## 0.6.0
 
-- **Synced with the Hugging Face model repo**, which re-uploaded the weights and
-  dropped `datastore.json`. New `model.onnx` downloads automatically on first
-  use; the published benchmark moves to 93.3% word accuracy on 126k words of
+- **Each release now pins the model weights it ships with.** The download is
+  locked to a Hugging Face commit (`DEFAULT_HF_REVISION`), so an installed
+  version always loads the files it was tested against. Pass
+  `G2P(revision="main")` to opt into the latest upload.
+- **Synced with the Hugging Face model repo**, which re-uploaded the weights.
+  New `model.onnx` downloads automatically on first use; the published benchmark moves to 93.3% word accuracy on 126k words of
   unseen podcast speech, with per-category numbers updated in the README.
-- **The attested-reading rescorer is gone**, along with the datastore it read:
-  the candidate inventory, the proposal energies and the trust gate. The new
+- **The attested-reading rescorer is gone**: the candidate inventory, the
+  proposal energies and the trust gate. The new
   weights fold in what it was doing — on 24 hand-checked pointed words the
   default decode goes from 13/24 to 17/24 segments right without it. The
   aligner stays (it validates lexicon entries) and so does the force lexicon.
-  `G2P(datastore=..., tau=..., mask=..., inventory_sources=...)` and
-  `rescoring_enabled` are removed.
+  `G2P(tau=..., mask=..., inventory_sources=...)` and `rescoring_enabled` are
+  removed.
 - `niqqud="use"` is unaffected and still constrains the exact-MAP decode: 24/24
   segments and 18/24 exact on that set, and 7/7 against the reference readings
   on the pointed possessive-suffix words.
@@ -51,9 +54,6 @@
   per-letter legality and "stress needs a vowel" as hard constraints. This
   removes the stranded-stress-mark class (`ʃˈ`, `benatˈv`): a mark can no longer
   land on a letter with no vowel. `exact_map=False` restores the greedy argmax.
-- **Attested-reading rescorer**, on whenever `datastore.json` sits beside the
-  weights — which it now does, since the automatic download fetches it too.
-  Trust gate at `tau=0.2` over corpus-attested readings; `datastore=None` off.
 - **Force lexicon** — `G2P(..., lexicon={...})` or a TSV path, wins where it
   matches. Off unless passed.
 - **Long inputs** past the encoder's 2,046-character window are split on
