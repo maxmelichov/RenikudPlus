@@ -188,3 +188,7 @@ rewrites IPA strings and so does not apply here.
   url={https://arxiv.org/pdf/2606.20179},
 }
 ```
+
+## License
+
+This project is licensed under the Creative Commons Attribution 4.0 International license (CC BY 4.0). See [LICENSE](LICENSE).

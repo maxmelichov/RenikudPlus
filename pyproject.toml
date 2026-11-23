@@ -4,7 +4,8 @@ version = "0.6.0"
 description = "ONNX Runtime inference for Hebrew grapheme-to-phoneme conversion (ReNikud Plus)"
 readme = "README.md"
 requires-python = ">=3.12"
-license = "MIT"
+license = "CC-BY-4.0"
+license-files = ["LICENSE"]
 authors = [
     { name = "Maxim Melichov" },
     { name = "Yakov Kolani" },
